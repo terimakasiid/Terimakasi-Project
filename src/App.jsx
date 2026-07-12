@@ -7,7 +7,7 @@ import {
   Mail, Lock, Eye, EyeOff, SlidersHorizontal, PartyPopper,
   CheckCircle2, Clock3, Wallet, HelpCircle, FileClock, Bell,
   Info, Share2, Signal, Wifi, BatteryFull, HeartHandshake,
-  QrCode, ShieldCheck, Copy, Edit3, ChevronDown, Phone, Send, MessageSquare,
+  QrCode, ShieldCheck, Copy, Edit3, ChevronDown, Phone, MessageSquare,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
