@@ -12,7 +12,18 @@ html, body, #root {
 
 .overflow-y-auto {
   -webkit-overflow-scrolling: touch;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
 }
+.overflow-y-auto::-webkit-scrollbar { display: none; }
+
+.overflow-x-auto {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.overflow-x-auto::-webkit-scrollbar { display: none; }
 
 .font-display {
   font-family: "Manrope", "Inter", sans-serif;

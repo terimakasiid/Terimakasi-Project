@@ -7,7 +7,7 @@ import {
   Mail, Lock, Eye, EyeOff, SlidersHorizontal, PartyPopper,
   CheckCircle2, Clock3, Wallet, HelpCircle, FileClock, Bell,
   Info, Share2, Signal, Wifi, BatteryFull, HeartHandshake,
-  QrCode, ShieldCheck, Copy, Edit3, ChevronDown, Phone, MessageSquare,
+  QrCode, ShieldCheck, Copy, Edit3, ChevronDown, Phone, MessageSquare, Trash2, Locate,
 } from "lucide-react";
 
 /* ---------------------------------- tokens ---------------------------------- */
@@ -367,65 +367,228 @@ function FakeQrCode({ seed = "terimakasi", size = 176 }) {
   );
 }
 
-function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi" }) {
+function MiniMap({ lat, lng, onPick, height = 180 }) {
+  const mapElRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+
+  useEffect(() => {
+    if (!window.L || !mapElRef.current || mapRef.current) return;
+    const startLat = lat || -6.2;
+    const startLng = lng || 106.816666;
+    const map = window.L.map(mapElRef.current, { zoomControl: false, attributionControl: false }).setView([startLat, startLng], lat ? 15 : 11);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+    window.L.control.zoom({ position: "bottomright" }).addTo(map);
+    const marker = window.L.marker([startLat, startLng], { draggable: true }).addTo(map);
+    marker.on("dragend", () => {
+      const pos = marker.getLatLng();
+      onPick(pos.lat, pos.lng);
+    });
+    map.on("click", (e) => {
+      marker.setLatLng(e.latlng);
+      onPick(e.latlng.lat, e.latlng.lng);
+    });
+    mapRef.current = map;
+    markerRef.current = marker;
+    setTimeout(() => map.invalidateSize(), 200);
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mapRef.current && markerRef.current && lat && lng) {
+      markerRef.current.setLatLng([lat, lng]);
+      mapRef.current.setView([lat, lng], mapRef.current.getZoom() < 14 ? 15 : mapRef.current.getZoom());
+    }
+  }, [lat, lng]);
+
+  return <div ref={mapElRef} style={{ width: "100%", height, borderRadius: "1rem", overflow: "hidden", background: "#eee" }} />;
+}
+
+function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi", initialLat, initialLng }) {
   const [query, setQuery] = useState("");
-  const filtered = LOKASI_PRESET.filter((loc) => loc.toLowerCase().includes(query.trim().toLowerCase()));
-  const isNewCustom = query.trim() && !LOKASI_PRESET.some((l) => l.toLowerCase() === query.trim().toLowerCase());
+  const [suggestions, setSuggestions] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [locatingGps, setLocatingGps] = useState(false);
+  const [gpsError, setGpsError] = useState("");
+  const [pin, setPin] = useState(initialLat && initialLng ? { lat: initialLat, lng: initialLng } : null);
+  const [pinAddress, setPinAddress] = useState("");
+  const [pinLoading, setPinLoading] = useState(false);
+  const debounceRef = useRef(null);
+
+  // Search live ala Google Maps: begitu user ngetik (min 3 huruf), tunggu
+  // sebentar (debounce) lalu cari ke OpenStreetMap.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=id&limit=6&addressdetails=1`
+        );
+        const data = await res.json();
+        setSuggestions(data || []);
+      } catch (e) {
+        setSuggestions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 500);
+    return () => clearTimeout(debounceRef.current);
+  }, [query]);
+
+  function pickSuggestion(s) {
+    onSelect(s.display_name, parseFloat(s.lat), parseFloat(s.lon));
+  }
+
+  function useCurrentGps() {
+    if (!navigator.geolocation) {
+      setGpsError("Perangkat ini tidak mendukung deteksi lokasi otomatis.");
+      return;
+    }
+    setLocatingGps(true);
+    setGpsError("");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16`);
+          const data = await res.json();
+          onSelect(data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude);
+        } catch (e) {
+          onSelect(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude);
+        }
+        setLocatingGps(false);
+      },
+      () => {
+        setLocatingGps(false);
+        setGpsError("Izin lokasi ditolak atau gagal dideteksi.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
+  async function handleMapPick(lat, lng) {
+    setPin({ lat, lng });
+    setPinLoading(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`);
+      const data = await res.json();
+      setPinAddress(data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    } catch (e) {
+      setPinAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    } finally {
+      setPinLoading(false);
+    }
+  }
+
+  const filtered = query.trim() ? [] : LOKASI_PRESET;
 
   return (
     <div className="absolute inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onClose} />
       <div
         className="relative w-full z-10 flex flex-col"
-        style={{ background: "#fff", boxShadow: "0 -20px 50px rgba(0,0,0,0.3)", borderTopLeftRadius: "2.2rem", borderTopRightRadius: "2.2rem", maxHeight: "85%" }}
+        style={{ background: "#fff", boxShadow: "0 -20px 50px rgba(0,0,0,0.3)", borderTopLeftRadius: "2.2rem", borderTopRightRadius: "2.2rem", maxHeight: "90%" }}
       >
         <div className="w-10 h-1.5 rounded-full mx-auto mt-4 mb-1 shrink-0" style={{ background: "#E2E8F0" }} />
         <div className="px-6 pt-4 shrink-0">
           <p className="font-display font-bold fsz-15 mb-4" style={{ color: C.navy }}>{title}</p>
-          <div className="flex items-center gap-2 rounded-2xl px-4 py-3 mb-4" style={{ background: C.gray }}>
+          <div className="flex items-center gap-2 rounded-2xl px-4 py-3 mb-3" style={{ background: C.gray }}>
             <Search size={16} color="#94A3B8" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && query.trim()) onSelect(query.trim());
-              }}
-              placeholder="Ketik nama daerah, contoh: Ciputat"
-              enterKeyHint="done"
+              placeholder="Cari alamat, jalan, atau daerah..."
+              enterKeyHint="search"
               className="bg-transparent outline-none fsz-13p5 flex-1 font-medium"
               style={{ color: C.text }}
             />
+            {searching && <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `${C.tosca} transparent ${C.tosca} ${C.tosca}` }} />}
           </div>
+
+          <button
+            onClick={useCurrentGps}
+            disabled={locatingGps}
+            className="w-full flex items-center gap-2.5 rounded-2xl px-4 py-3 mb-3 text-left transition active:scale-95"
+            style={{ background: "rgba(20,207,185,0.1)" }}
+          >
+            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: C.tosca }}>
+              {locatingGps ? (
+                <div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "#fff transparent #fff #fff" }} />
+              ) : (
+                <Locate size={15} color="#fff" />
+              )}
+            </div>
+            <span className="fsz-13p5 font-bold flex-1" style={{ color: C.tosca }}>
+              {locatingGps ? "Mendeteksi lokasi..." : "Gunakan Lokasi Saat Ini"}
+            </span>
+          </button>
+          {gpsError && <p className="fsz-11p5 font-medium mb-2" style={{ color: "#EF4444" }}>{gpsError}</p>}
+
+          <p className="fsz-12 font-bold tc-slate mb-2">Atau tandai di peta</p>
+          <MiniMap lat={pin?.lat} lng={pin?.lng} onPick={handleMapPick} height={170} />
+          {pin && (
+            <div className="mt-2.5 rounded-2xl p-3 flex items-center gap-2.5" style={{ background: C.gray }}>
+              <MapPin size={15} color={C.tosca} className="shrink-0" />
+              <span className="fsz-12 font-medium flex-1" style={{ color: C.text }}>
+                {pinLoading ? "Mengambil nama alamat..." : pinAddress}
+              </span>
+              <button
+                onClick={() => !pinLoading && onSelect(pinAddress, pin.lat, pin.lng)}
+                disabled={pinLoading}
+                className="px-3 py-1.5 rounded-full fsz-11 font-bold shrink-0 transition active:scale-95"
+                style={{ background: C.tosca, color: "#fff" }}
+              >
+                Pakai
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="overflow-y-auto px-6 pb-8" style={{ WebkitOverflowScrolling: "touch" }}>
+        <div className="overflow-y-auto px-6 pt-3 pb-8" style={{ WebkitOverflowScrolling: "touch" }}>
           <div className="flex flex-col gap-2">
-            {isNewCustom && (
-              <button
-                onClick={() => onSelect(query.trim())}
-                className="w-full flex items-center gap-2.5 rounded-2xl px-4 py-3 text-left transition active:scale-95"
-                style={{ background: "rgba(20,207,185,0.1)" }}
-              >
-                <Plus size={15} color={C.tosca} />
-                <span className="fsz-13p5 font-semibold flex-1" style={{ color: C.tosca }}>
-                  Gunakan "{query.trim()}"
-                </span>
-              </button>
+            {query.trim().length >= 3 && suggestions.length > 0 && (
+              <>
+                <p className="fsz-12 font-bold tc-slate mb-1">Hasil pencarian</p>
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => pickSuggestion(s)}
+                    className="w-full flex items-start gap-2.5 rounded-2xl px-4 py-3 text-left transition active:scale-95"
+                    style={{ background: C.gray }}
+                  >
+                    <MapPin size={15} color="#94A3B8" className="shrink-0 mt-0.5" />
+                    <span className="fsz-12p5 font-semibold flex-1" style={{ color: C.text }}>{s.display_name}</span>
+                  </button>
+                ))}
+              </>
             )}
-            {filtered.map((loc) => (
-              <button
-                key={loc}
-                onClick={() => onSelect(loc)}
-                className="w-full flex items-center gap-2.5 rounded-2xl px-4 py-3 text-left transition active:scale-95"
-                style={{ background: value === loc ? "rgba(20,207,185,0.1)" : C.gray }}
-              >
-                <MapPin size={15} color={value === loc ? C.tosca : "#94A3B8"} />
-                <span className="fsz-13p5 font-semibold flex-1" style={{ color: value === loc ? C.tosca : C.text }}>{loc}</span>
-                {value === loc && <Check size={15} color={C.tosca} />}
-              </button>
-            ))}
-            {query.trim() && filtered.length === 0 && (
-              <p className="fsz-12 tc-gray font-medium text-center py-2">Tidak ada lokasi tersimpan yang cocok, tap tombol di atas untuk pakai lokasi ketikanmu</p>
+            {query.trim().length >= 3 && !searching && suggestions.length === 0 && (
+              <p className="fsz-12 tc-gray font-medium text-center py-2">Alamat tidak ditemukan, coba kata kunci lain atau tandai langsung di peta</p>
+            )}
+            {!query.trim() && (
+              <>
+                <p className="fsz-12 font-bold tc-slate mb-1">Daerah populer</p>
+                {filtered.map((loc) => (
+                  <button
+                    key={loc}
+                    onClick={() => onSelect(loc)}
+                    className="w-full flex items-center gap-2.5 rounded-2xl px-4 py-3 text-left transition active:scale-95"
+                    style={{ background: value === loc ? "rgba(20,207,185,0.1)" : C.gray }}
+                  >
+                    <MapPin size={15} color={value === loc ? C.tosca : "#94A3B8"} />
+                    <span className="fsz-13p5 font-semibold flex-1" style={{ color: value === loc ? C.tosca : C.text }}>{loc}</span>
+                    {value === loc && <Check size={15} color={C.tosca} />}
+                  </button>
+                ))}
+              </>
             )}
           </div>
         </div>
@@ -843,6 +1006,17 @@ export default function TerimaKasiApp() {
         .from("profiles")
         .update({ lokasi_utama: address, lat, lng })
         .eq("id", session.user.id);
+
+      // Kalau ini lokasi pertama yang di-set, otomatis simpan juga
+      // sebagai "Lokasi Tersimpan" biar gak kosong dari awal.
+      if (savedLocations.length === 0) {
+        const { data } = await supabase
+          .from("saved_locations")
+          .insert({ user_id: session.user.id, label: "Lokasi Utama", address })
+          .select("*")
+          .single();
+        if (data) setSavedLocations((ls) => [...ls, { id: data.id, label: data.label, address: data.address }]);
+      }
     }
   }
 
@@ -1350,7 +1524,9 @@ export default function TerimaKasiApp() {
         {showLokasiPicker && (
           <LocationPickerSheet
             value={userLokasi}
-            onSelect={(v) => { setUserLokasi(v); setShowLokasiPicker(false); }}
+            initialLat={userLat}
+            initialLng={userLng}
+            onSelect={(v, lat, lng) => { saveLocationToProfile(v, lat, lng); setShowLokasiPicker(false); }}
             onClose={() => setShowLokasiPicker(false)}
             title="Ubah Lokasimu"
           />
@@ -1501,6 +1677,8 @@ export default function TerimaKasiApp() {
     const [fotos, setFotos] = useState([]); // preview base64, buat ditampilkan
     const [fotoFiles, setFotoFiles] = useState([]); // file asli, buat diupload
     const [lokasi, setLokasi] = useState(userLokasi);
+    const [lokasiLat, setLokasiLat] = useState(userLat);
+    const [lokasiLng, setLokasiLng] = useState(userLng);
     const [showLokasiPicker, setShowLokasiPicker] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState("");
@@ -1535,7 +1713,9 @@ export default function TerimaKasiApp() {
         for (const file of fotoFiles) {
           const ext = file.name.split(".").pop() || "jpg";
           const path = `${session.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const { error: upErr } = await supabase.storage.from("item-photos").upload(path, file);
+          const { error: upErr } = await supabase.storage
+            .from("item-photos")
+            .upload(path, file, { contentType: file.type || "image/jpeg" });
           if (upErr) throw upErr;
           const { data: urlData } = supabase.storage.from("item-photos").getPublicUrl(path);
           uploadedUrls.push(urlData.publicUrl);
@@ -1550,8 +1730,8 @@ export default function TerimaKasiApp() {
             kondisi,
             persen: kondisi === "Second" ? persen : null,
             lokasi,
-            lat: userLat,
-            lng: userLng,
+            lat: lokasiLat,
+            lng: lokasiLng,
             deskripsi: desk || "Tidak ada deskripsi tambahan.",
             status: "Aktif",
             foto_urls: uploadedUrls,
@@ -1670,7 +1850,9 @@ export default function TerimaKasiApp() {
         {showLokasiPicker && (
           <LocationPickerSheet
             value={lokasi}
-            onSelect={(v) => { setLokasi(v); setShowLokasiPicker(false); }}
+            initialLat={lokasiLat}
+            initialLng={lokasiLng}
+            onSelect={(v, lat, lng) => { setLokasi(v); if (lat && lng) { setLokasiLat(lat); setLokasiLng(lng); } setShowLokasiPicker(false); }}
             onClose={() => setShowLokasiPicker(false)}
             title="Pilih Lokasi Pengambilan"
           />
@@ -1683,11 +1865,41 @@ export default function TerimaKasiApp() {
     const item = selectedItem;
     const [showShareSheet, setShowShareSheet] = useState(false);
     const [copyStatus, setCopyStatus] = useState("idle"); // 'idle' | 'copied'
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleting, setDeleting] = useState(false);
     const shareTextRef = useRef(null);
     if (!item) return null;
     const isMine = itemSource === "dibagi" || item.pemberiNama === userProfile.nama;
     const isDiterima = itemSource === "diterima";
     const itemChats = chats.filter((c) => c.itemId === item.id);
+
+    async function deleteItem() {
+      setDeleting(true);
+      try {
+        // Hapus foto-fotonya dulu dari Storage biar gak numpuk sampah.
+        if (item.fotos && item.fotos.length > 0) {
+          const paths = item.fotos
+            .map((url) => {
+              const marker = "/item-photos/";
+              const idx = url.indexOf(marker);
+              return idx >= 0 ? url.slice(idx + marker.length) : null;
+            })
+            .filter(Boolean);
+          if (paths.length > 0) await supabase.storage.from("item-photos").remove(paths);
+        }
+        const { error } = await supabase.from("items").delete().eq("id", item.id);
+        if (error) throw error;
+        setDibagi((ds) => ds.filter((d) => d.id !== item.id));
+        setHomeItems((hs) => hs.filter((h) => h.id !== item.id));
+        setShowDeleteConfirm(false);
+        goBack();
+        showToast("Barang berhasil dihapus");
+      } catch (err) {
+        showToast("Gagal menghapus barang, coba lagi.");
+      } finally {
+        setDeleting(false);
+      }
+    }
 
     const shareLink = `https://terimakasi.id/barang/${item.id}`;
     const shareText = `${item.nama} (${item.kondisi === "Second" ? `Second · ${item.persen}%` : "Baru"}) di ${item.lokasi} — dibagikan gratis lewat TerimaKasi.`;
@@ -1821,17 +2033,46 @@ export default function TerimaKasiApp() {
             <PrimaryButton icon={MessageCircle} onClick={() => openChatWith(item)}>Chat Pemberi</PrimaryButton>
           )}
           {isMine && item.status === "Aktif" && (
-            <PrimaryButton icon={CheckCircle2} onClick={() => markDone(item.id)}>Tandai Selesai</PrimaryButton>
+            <PrimaryButton icon={CheckCircle2} onClick={() => markDone(item.id)} className="mb-2.5">Tandai Selesai</PrimaryButton>
           )}
           {isMine && item.status === "Selesai" && (
-            <div className="w-full py-3.5 rounded-2xl font-bold fsz-14 flex items-center justify-center gap-2" style={{ background: C.gray, color: "#64748B" }}>
+            <div className="w-full py-3.5 rounded-2xl font-bold fsz-14 flex items-center justify-center gap-2 mb-2.5" style={{ background: C.gray, color: "#64748B" }}>
               <CheckCircle2 size={17} /> Sudah Diserahkan{item.penerimaNama ? ` ke ${item.penerimaNama}` : ""}
             </div>
           )}
           {isDiterima && (
             <GhostButton onClick={() => openChatWith(item)}>Chat Pemberi</GhostButton>
           )}
+          {isMine && (
+            <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-3 flex items-center justify-center gap-2 fsz-13 font-bold transition active:scale-95" style={{ color: "#EF4444" }}>
+              <Trash2 size={16} /> Hapus Barang
+            </button>
+          )}
         </div>
+
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center px-6">
+            <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} onClick={() => !deleting && setShowDeleteConfirm(false)} />
+            <div className="relative w-full max-w-sm rounded-3xl p-6" style={{ background: "#fff", boxShadow: "0 20px 50px -10px rgba(0,0,0,0.4)" }}>
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: "rgba(239,68,68,0.1)" }}>
+                <Trash2 size={22} color="#EF4444" />
+              </div>
+              <p className="font-display font-bold fsz-15 mb-2" style={{ color: C.navy }}>Hapus Barang Ini?</p>
+              <p className="fsz-13 leading-relaxed mb-5" style={{ color: "#475569" }}>
+                "{item.nama}" akan dihapus permanen dan gak bisa dikembalikan. Kalau ada chat yang masih berlangsung soal barang ini, itu juga akan ikut terhapus.
+              </p>
+              <button
+                onClick={deleteItem}
+                disabled={deleting}
+                className="w-full py-3.5 rounded-2xl font-bold fsz-15 text-white mb-2.5 transition active:scale-95 disabled:opacity-50"
+                style={{ background: "#EF4444" }}
+              >
+                {deleting ? "Menghapus..." : "Ya, Hapus"}
+              </button>
+              <GhostButton onClick={() => setShowDeleteConfirm(false)}>Batal</GhostButton>
+            </div>
+          </div>
+        )}
 
         {showShareSheet && (
           <div className="absolute inset-0 z-50 flex items-end justify-center">
@@ -2235,6 +2476,8 @@ export default function TerimaKasiApp() {
     const [photo, setPhoto] = useState(userProfile.photo);
     const [photoFile, setPhotoFile] = useState(null);
     const [lokasi, setLokasi] = useState(userLokasi);
+    const [lokasiLat, setLokasiLat] = useState(userLat);
+    const [lokasiLng, setLokasiLng] = useState(userLng);
     const [showLokasiPicker, setShowLokasiPicker] = useState(false);
     const [saving, setSaving] = useState(false);
     const fileInputRef = useRef(null);
@@ -2257,7 +2500,9 @@ export default function TerimaKasiApp() {
         if (photoFile) {
           const ext = photoFile.name.split(".").pop() || "jpg";
           const path = `${session.user.id}/${Date.now()}.${ext}`;
-          const { error: upErr } = await supabase.storage.from("profile-photos").upload(path, photoFile, { upsert: true });
+          const { error: upErr } = await supabase.storage
+            .from("profile-photos")
+            .upload(path, photoFile, { upsert: true, contentType: photoFile.type || "image/jpeg" });
           if (upErr) throw upErr;
           const { data: urlData } = supabase.storage.from("profile-photos").getPublicUrl(path);
           photoUrl = urlData.publicUrl;
@@ -2268,15 +2513,17 @@ export default function TerimaKasiApp() {
 
         await supabase
           .from("profiles")
-          .update({ nama: finalNama, email: finalEmail, photo_url: photoUrl, lokasi_utama: lokasi })
+          .update({ nama: finalNama, email: finalEmail, photo_url: photoUrl, lokasi_utama: lokasi, lat: lokasiLat, lng: lokasiLng })
           .eq("id", session.user.id);
 
         setUserProfile({ nama: finalNama, email: finalEmail, photo: photoUrl });
         setUserLokasi(lokasi);
+        if (lokasiLat && lokasiLng) { setUserLat(lokasiLat); setUserLng(lokasiLng); }
         goBack();
         showToast("Profil berhasil diperbarui");
       } catch (err) {
-        showToast("Gagal menyimpan profil, coba lagi.");
+        console.error("Gagal simpan profil:", err);
+        showToast(`Gagal menyimpan profil: ${err.message || "coba lagi."}`);
       } finally {
         setSaving(false);
       }
@@ -2316,7 +2563,9 @@ export default function TerimaKasiApp() {
         {showLokasiPicker && (
           <LocationPickerSheet
             value={lokasi}
-            onSelect={(v) => { setLokasi(v); setShowLokasiPicker(false); }}
+            initialLat={lokasiLat}
+            initialLng={lokasiLng}
+            onSelect={(v, lat, lng) => { setLokasi(v); if (lat && lng) { setLokasiLat(lat); setLokasiLng(lng); } setShowLokasiPicker(false); }}
             onClose={() => setShowLokasiPicker(false)}
             title="Ubah Lokasi Utama"
           />
@@ -2738,6 +2987,10 @@ export default function TerimaKasiApp() {
         * { font-family: 'Inter', sans-serif; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .overflow-y-auto { -ms-overflow-style: none; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+        .overflow-y-auto::-webkit-scrollbar { display: none; }
+        .overflow-x-auto { -ms-overflow-style: none; scrollbar-width: none; overscroll-behavior-x: contain; }
+        .overflow-x-auto::-webkit-scrollbar { display: none; }
         .tc-slate { color: #64748B; }
         .tc-gray { color: #94A3B8; }
         .splash-pop { animation: splashPop 0.9s cubic-bezier(0.34,1.56,0.64,1) forwards; }
