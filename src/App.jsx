@@ -610,6 +610,22 @@ export default function TerimaKasiApp() {
 
   const [showDeliveryNotice, setShowDeliveryNotice] = useState(false);
 
+  const [dibagi, setDibagi] = useState(INITIAL_DIBAGI);
+  const [diterima, setDiterima] = useState([]);
+  const [userLat, setUserLat] = useState(null);
+  const [userLng, setUserLng] = useState(null);
+  const [homeItems, setHomeItems] = useState(HOME_ITEMS);
+  const [favorites, setFavorites] = useState([]);
+  const [chats, setChats] = useState(INITIAL_CHATS);
+  const [userLokasi, setUserLokasi] = useState("Belum diatur");
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [userProfile, setUserProfile] = useState({ nama: "", email: "", photo: null });
+  const [savedLocations, setSavedLocations] = useState([]);
+  const [showTip, setShowTip] = useState(false);
+  const [totalTip, setTotalTip] = useState(0);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
   // Begitu session aktif (baru login / sudah login sebelumnya), ambil data
   // profil dari tabel profiles dan isi ke userProfile, lalu masuk ke Home.
   useEffect(() => {
@@ -930,13 +946,6 @@ export default function TerimaKasiApp() {
     setTotalTip(0);
     navRoot("splash");
   }
-  const [dibagi, setDibagi] = useState(INITIAL_DIBAGI);
-  const [diterima, setDiterima] = useState([]);
-  const [userLat, setUserLat] = useState(null);
-  const [userLng, setUserLng] = useState(null);
-  const [homeItems, setHomeItems] = useState(HOME_ITEMS);
-  const [favorites, setFavorites] = useState([]);
-
   async function toggleFavorite(id) {
     const alreadyLiked = favorites.includes(id);
     // Optimistic update dulu biar responsif, baru sinkron ke database.
@@ -950,16 +959,6 @@ export default function TerimaKasiApp() {
       await supabase.from("favorites").insert({ user_id: session.user.id, item_id: id });
     }
   }
-  const [chats, setChats] = useState(INITIAL_CHATS);
-  const [userLokasi, setUserLokasi] = useState("Belum diatur");
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [userProfile, setUserProfile] = useState({ nama: "", email: "", photo: null });
-  const [savedLocations, setSavedLocations] = useState([]);
-  const [showTip, setShowTip] = useState(false);
-  const [totalTip, setTotalTip] = useState(0);
-  const [toast, setToast] = useState(null);
-  const toastTimer = useRef(null);
-
   function showToast(msg) {
     setToast(msg);
     clearTimeout(toastTimer.current);
