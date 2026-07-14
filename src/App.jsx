@@ -314,6 +314,19 @@ function formatDateLabel(isoString) {
   return d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
 }
 
+// Ringkas alamat lengkap dari Nominatim jadi "Kecamatan, Kota" aja,
+// biar gak kepanjangan pas ditampilkan di Home dll.
+function buildShortAddress(nominatimAddress, fallback) {
+  const addr = nominatimAddress || {};
+  const kecamatan =
+    addr.suburb || addr.village || addr.city_district || addr.town || addr.municipality || addr.county;
+  const kota = addr.city || addr.town || addr.regency || addr.county || addr.state;
+  if (kecamatan && kota && kecamatan !== kota) return `${kecamatan}, ${kota}`;
+  if (kecamatan) return kecamatan;
+  if (kota) return kota;
+  return fallback || "Lokasi Kamu";
+}
+
 function useStablePage(renderFn) {
   const fnRef = useRef(renderFn);
   fnRef.current = renderFn;
@@ -407,7 +420,7 @@ function MiniMap({ lat, lng, onPick, height = 180 }) {
   return <div ref={mapElRef} style={{ width: "100%", height, borderRadius: "1rem", overflow: "hidden", background: "#eee" }} />;
 }
 
-function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi", initialLat, initialLng }) {
+function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi", initialLat, initialLng, shortAddress = true }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -444,7 +457,8 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
   }, [query]);
 
   function pickSuggestion(s) {
-    onSelect(s.display_name, parseFloat(s.lat), parseFloat(s.lon));
+    const addr = shortAddress ? buildShortAddress(s.address, s.display_name) : s.display_name;
+    onSelect(addr, parseFloat(s.lat), parseFloat(s.lon));
   }
 
   function useCurrentGps() {
@@ -458,9 +472,10 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16`);
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16&addressdetails=1`);
           const data = await res.json();
-          onSelect(data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude);
+          const addr = shortAddress ? buildShortAddress(data.address, data.display_name) : data.display_name;
+          onSelect(addr || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude);
         } catch (e) {
           onSelect(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude);
         }
@@ -478,9 +493,10 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
     setPin({ lat, lng });
     setPinLoading(true);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`);
       const data = await res.json();
-      setPinAddress(data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      const addr = shortAddress ? buildShortAddress(data.address, data.display_name) : data.display_name;
+      setPinAddress(addr || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     } catch (e) {
       setPinAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     } finally {
@@ -598,7 +614,15 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
 }
 
 /* ---------------------------------- custom nav icons ---------------------------------- */
-function HomeIcon({ size = 24, color = "currentColor", strokeWidth = 1.5 }) {
+function HomeIcon({ size = 24, color = "currentColor", strokeWidth = 1.5, filled = false }) {
+  if (filled) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <path d="M12 2.5c1.2 0 2.23.8 4.3 2.41l2 1.55c1.33 1.03 2 1.55 2.34 2.28.36.73.36 1.57.36 3.25V14.5c0 3.3 0 4.95-1.03 5.97-1.02 1.03-2.67 1.03-5.97 1.03H10c-3.3 0-4.95 0-5.97-1.03C3 19.45 3 17.8 3 14.5v-2.51c0-1.68 0-2.52.36-3.25.34-.73 1-1.25 2.34-2.28l2-1.55C9.77 3.3 10.8 2.5 12 2.5Z" />
+        <path d="M12 13.5c1.41 0 2.12 0 2.56.44.44.44.44 1.15.44 2.56v5h-6v-5c0-1.41 0-2.12.44-2.56.44-.44 1.15-.44 2.56-.44Z" fill="#fff" />
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 11.9896V14.5C3 17.7998 3 19.4497 4.02513 20.4749C5.05025 21.5 6.70017 21.5 10 21.5H14C17.2998 21.5 18.9497 21.5 19.9749 20.4749C21 19.4497 21 17.7998 21 14.5V11.9896C21 10.3083 21 9.46773 20.6441 8.74005C20.2882 8.01237 19.6247 7.49628 18.2976 6.46411L16.2976 4.90855C14.2331 3.30285 13.2009 2.5 12 2.5C10.7991 2.5 9.76689 3.30285 7.70242 4.90855L5.70241 6.46411C4.37533 7.49628 3.71179 8.01237 3.3559 8.74005C3 9.46773 3 10.3083 3 11.9896Z" />
@@ -616,7 +640,14 @@ function PackageIcon({ size = 24, color = "currentColor", strokeWidth = 1.5 }) {
     </svg>
   );
 }
-function ChatIcon({ size = 24, color = "currentColor", strokeWidth = 1.5 }) {
+function ChatIcon({ size = 24, color = "currentColor", strokeWidth = 1.5, filled = false }) {
+  if (filled) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <path d="M12 2.5c-1.48 0-2.91.03-4.24.09C5.32 2.69 4.1 2.74 3.13 3.72 2.16 4.69 2.12 5.88 2.04 8.25 2.01 8.98 2 9.73 2 10.5s.01 1.52.04 2.25c.08 2.37.12 3.56 1.09 4.53.97.98 2.19 1.03 4.63 1.13l.24.01v2.33c0 .4.33.73.73.73.17 0 .34-.06.47-.18l2.19-1.87c.5-.43.77-.66 1.09-.78.32-.12.68-.13 1.4-.14.78-.02 1.54-.04 2.27-.07 2.44-.1 3.66-.15 4.63-1.13.97-.97 1.01-2.16 1.09-4.53.03-.73.04-1.48.04-2.25s-.01-1.52-.04-2.25c-.08-2.37-.12-3.56-1.09-4.53-.97-.98-2.19-1.03-4.63-1.13C14.91 2.53 13.48 2.5 12 2.5Z" />
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <path d="M7.5 8.5H16.5M7.5 12.5H13" />
@@ -624,7 +655,15 @@ function ChatIcon({ size = 24, color = "currentColor", strokeWidth = 1.5 }) {
     </svg>
   );
 }
-function UserIcon({ size = 24, color = "currentColor", strokeWidth = 1.5 }) {
+function UserIcon({ size = 24, color = "currentColor", strokeWidth = 1.5, filled = false }) {
+  if (filled) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <path d="M12 3c-2.21 0-4 1.98-4 4.42S9.79 11.84 12 11.84s4-1.98 4-4.42S14.21 3 12 3Z" />
+        <path d="M12 13.5c-4.28 0-7.75 2.9-7.75 6.48 0 .58.47 1.02 1.05 1.02h13.4c.58 0 1.05-.44 1.05-1.02 0-3.58-3.47-6.48-7.75-6.48Z" />
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth}>
       <path d="M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z" />
@@ -664,7 +703,16 @@ function InstagramIcon({ size = 18, color = "#fff" }) {
   );
 }
 
-function DeliveryBoxIcon({ size = 24, color = "currentColor", strokeWidth = 1.5 }) {
+function DeliveryBoxIcon({ size = 24, color = "currentColor", strokeWidth = 1.5, filled = false }) {
+  if (filled) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <path d="M3.87 5.31 2.5 7.5h19l-1.25-2.09c-.85-1.42-1.28-2.13-1.97-2.52C17.59 2.5 16.76 2.5 15.1 2.5H8.95c-1.62 0-2.43 0-3.11.38-.68.37-1.11 1.06-1.97 2.43Z" />
+        <path d="M2.5 9v4.5c0 3.77 0 5.66 1.17 6.83C4.84 21.5 6.73 21.5 10.5 21.5h3c3.77 0 5.66 0 6.83-1.17C21.5 19.16 21.5 17.27 21.5 13.5V9h-19Z" />
+        <path d="M6 15h5M6 18h3" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.5 7.5V13.5C2.5 17.2712 2.5 19.1569 3.67157 20.3284C4.84315 21.5 6.72876 21.5 10.5 21.5H13.5C17.2712 21.5 19.1569 21.5 20.3284 20.3284C21.5 19.1569 21.5 17.2712 21.5 13.5V7.5" />
@@ -698,7 +746,7 @@ function BottomNav({ page, onNav, onAdd, badges = {} }) {
         style={{ background: active ? "rgba(20,207,185,0.12)" : "transparent" }}
       >
         <div className="relative">
-          <Icon size={23} strokeWidth={active ? 2.4 : 2} color={active ? C.tosca : "#94A3B8"} />
+          <Icon size={23} strokeWidth={active ? 2.4 : 2} color={active ? C.tosca : "#94A3B8"} filled={active} />
           {badges[it.key] && (
             <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#EF4444", border: "2px solid #fff" }} />
           )}
@@ -1032,14 +1080,10 @@ export default function TerimaKasiApp() {
         const { latitude, longitude } = pos.coords;
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16`
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16&addressdetails=1`
           );
           const data = await res.json();
-          const addr = data.address || {};
-          const label =
-            addr.suburb || addr.village || addr.city_district || addr.town || addr.city || "Lokasi Kamu";
-          const kota = addr.city || addr.town || addr.county || addr.state || "";
-          const readable = kota ? `${label}, ${kota}` : label;
+          const readable = buildShortAddress(data.address, data.display_name);
           await saveLocationToProfile(readable, latitude, longitude);
         } catch (e) {
           await saveLocationToProfile(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, latitude, longitude);
@@ -2250,6 +2294,22 @@ export default function TerimaKasiApp() {
   function ChatConversationPage() {
     const c = activeChat;
     const [chatInput, setChatInput] = useState("");
+    const messagesEndRef = useRef(null);
+    const messagesScrollRef = useRef(null);
+
+    function scrollToBottom(smooth = false) {
+      const el = messagesScrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    }
+
+    useEffect(() => {
+      scrollToBottom(false);
+    }, [c?.id]);
+
+    useEffect(() => {
+      scrollToBottom(true);
+    }, [c?.messages?.length]);
+
     if (!c) return null;
     const dibagiItem = dibagi.find((d) => d.id === c.itemId);
     const canMarkDone = c.isMyItem && dibagiItem && dibagiItem.status === "Aktif";
@@ -2282,7 +2342,7 @@ export default function TerimaKasiApp() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-2.5">
+        <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-2.5">
           {c.messages.map((m, i) => {
             const prev = c.messages[i - 1];
             const showDateSeparator = m.createdAt && (!prev?.createdAt || !isSameDay(prev.createdAt, m.createdAt));
@@ -2318,7 +2378,15 @@ export default function TerimaKasiApp() {
 
         <div className="px-4 pb-6 pt-1 shrink-0 flex items-center gap-2">
           <div className="flex-1 rounded-2xl px-4 py-3" style={{ background: C.gray }}>
-            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { sendMessage(chatInput); setChatInput(""); } }} placeholder="Tulis pesan..." className="bg-transparent outline-none fsz-13p5 w-full font-medium" style={{ color: C.text }} />
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { sendMessage(chatInput); setChatInput(""); } }}
+              onFocus={() => setTimeout(() => scrollToBottom(true), 300)}
+              placeholder="Tulis pesan..."
+              className="bg-transparent outline-none fsz-13p5 w-full font-medium"
+              style={{ color: C.text }}
+            />
           </div>
           <button onClick={() => { sendMessage(chatInput); setChatInput(""); }} className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: C.tosca }}>
             <Send size={16} color="#fff" />
@@ -2502,7 +2570,7 @@ export default function TerimaKasiApp() {
           const path = `${session.user.id}/${Date.now()}.${ext}`;
           const { error: upErr } = await supabase.storage
             .from("profile-photos")
-            .upload(path, photoFile, { upsert: true, contentType: photoFile.type || "image/jpeg" });
+            .upload(path, photoFile, { contentType: photoFile.type || "image/jpeg" });
           if (upErr) throw upErr;
           const { data: urlData } = supabase.storage.from("profile-photos").getPublicUrl(path);
           photoUrl = urlData.publicUrl;
@@ -2686,6 +2754,7 @@ export default function TerimaKasiApp() {
             onSelect={addLocation}
             onClose={() => setShowPicker(false)}
             title="Tambah Lokasi Tersimpan"
+            shortAddress={false}
           />
         )}
       </div>
@@ -2995,7 +3064,7 @@ export default function TerimaKasiApp() {
         .tc-gray { color: #94A3B8; }
         .splash-pop { animation: splashPop 0.9s cubic-bezier(0.34,1.56,0.64,1) forwards; }
         @keyframes splashPop { 0% { opacity: 0; transform: scale(0.6); } 100% { opacity: 1; transform: scale(1); } }
-        html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+        html, body { position: fixed; inset: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
       `}</style>
       <div className="relative w-full max-w-full h-full overflow-hidden" style={{ background: "#fff", boxShadow: "0 0 60px rgba(0,0,0,0.12)" }}>
         <CurrentPage />
