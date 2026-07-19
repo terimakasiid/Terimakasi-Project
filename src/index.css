@@ -23,14 +23,14 @@ html, body {
   -webkit-overflow-scrolling: touch;
   -ms-overflow-style: none;
   scrollbar-width: none;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: none;
 }
 .overflow-y-auto::-webkit-scrollbar { display: none; }
 
 .overflow-x-auto {
   -ms-overflow-style: none;
   scrollbar-width: none;
-  overscroll-behavior-x: contain;
+  overscroll-behavior-x: none;
 }
 .overflow-x-auto::-webkit-scrollbar { display: none; }
 
