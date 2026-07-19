@@ -83,12 +83,28 @@ function Wordmark({ size = "text-3xl", light }) {
   );
 }
 
-function NodeDivider({ className = "" }) {
+function NodeDivider({ className = "", km }) {
+  const hasDistance = typeof km === "number" && km >= 0;
+  // Panjang garis tosca yang keisi proporsional sama jarak, dipatok ke
+  // rentang 0-10km biar tetap kebaca meski barangnya deket banget (min 10%)
+  // atau jauh banget (maks penuh di 10km+).
+  const maxKm = 10;
+  const pct = hasDistance ? Math.min(Math.max(km / maxKm, 0.1), 1) * 100 : 100;
+
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <span className="w-2 h-2 rounded-full" style={{ background: C.navy }} />
-      <span className="flex-1 h-0.5 rounded-full" style={{ background: C.tosca, opacity: 0.25 }} />
-      <span className="w-2 h-2 rounded-full" style={{ background: C.tosca }} />
+    <div className={className}>
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: C.navy }} />
+        <span className="flex-1 h-0.5 rounded-full relative overflow-hidden" style={{ background: "rgba(20,207,185,0.2)" }}>
+          <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct}%`, background: C.tosca }} />
+        </span>
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: C.tosca }} />
+      </div>
+      {hasDistance && (
+        <p className="text-center fsz-10p5 font-bold mt-1.5" style={{ color: C.tosca }}>
+          ±{km}km dari lokasimu
+        </p>
+      )}
     </div>
   );
 }
@@ -532,7 +548,7 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
         <div className="w-10 h-1.5 rounded-full mx-auto mt-4 mb-1 shrink-0" style={{ background: "#E2E8F0" }} />
         <div className="px-6 pt-4 shrink-0">
           <p className="font-display font-bold fsz-15 mb-4" style={{ color: C.navy }}>{title}</p>
-          <div className="flex items-center gap-2 rounded-2xl px-4 py-3 mb-3" style={{ background: C.gray }}>
+          <div className="flex items-center gap-2 rounded-2xl px-4 py-3" style={{ background: C.gray }}>
             <Search size={16} color="#94A3B8" />
             <input
               value={query}
@@ -544,44 +560,6 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
             />
             {searching && <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `${C.tosca} transparent ${C.tosca} ${C.tosca}` }} />}
           </div>
-
-          <button
-            onClick={useCurrentGps}
-            disabled={locatingGps}
-            className="w-full flex items-center gap-2.5 rounded-2xl px-4 py-3 mb-3 text-left transition active:scale-95"
-            style={{ background: "rgba(20,207,185,0.1)" }}
-          >
-            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: C.tosca }}>
-              {locatingGps ? (
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "#fff transparent #fff #fff" }} />
-              ) : (
-                <Locate size={15} color="#fff" />
-              )}
-            </div>
-            <span className="fsz-13p5 font-bold flex-1" style={{ color: C.tosca }}>
-              {locatingGps ? "Mendeteksi lokasi..." : "Gunakan Lokasi Saat Ini"}
-            </span>
-          </button>
-          {gpsError && <p className="fsz-11p5 font-medium mb-2" style={{ color: "#EF4444" }}>{gpsError}</p>}
-
-          <p className="fsz-12 font-bold tc-slate mb-2">Atau tandai di peta</p>
-          <MiniMap lat={pin?.lat} lng={pin?.lng} onPick={handleMapPick} height={170} />
-          {pin && (
-            <div className="mt-2.5 rounded-2xl p-3 flex items-center gap-2.5" style={{ background: C.gray }}>
-              <MapPin size={15} color={C.tosca} className="shrink-0" />
-              <span className="fsz-12 font-medium flex-1" style={{ color: C.text }}>
-                {pinLoading ? "Mengambil nama alamat..." : pinAddress}
-              </span>
-              <button
-                onClick={() => !pinLoading && onSelect(pinAddress, pin.lat, pin.lng)}
-                disabled={pinLoading}
-                className="px-3 py-1.5 rounded-full fsz-11 font-bold shrink-0 transition active:scale-95"
-                style={{ background: C.tosca, color: "#fff" }}
-              >
-                Pakai
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="overflow-y-auto px-6 pt-3 pb-8" style={{ WebkitOverflowScrolling: "touch" }}>
@@ -621,6 +599,44 @@ function LocationPickerSheet({ value, onSelect, onClose, title = "Pilih Lokasi",
                   </button>
                 ))}
               </>
+            )}
+
+            <button
+              onClick={useCurrentGps}
+              disabled={locatingGps}
+              className="w-full flex items-center gap-2.5 rounded-2xl px-4 py-3 mt-1 text-left transition active:scale-95"
+              style={{ background: "rgba(20,207,185,0.1)" }}
+            >
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: C.tosca }}>
+                {locatingGps ? (
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "#fff transparent #fff #fff" }} />
+                ) : (
+                  <Locate size={15} color="#fff" />
+                )}
+              </div>
+              <span className="fsz-13p5 font-bold flex-1" style={{ color: C.tosca }}>
+                {locatingGps ? "Mendeteksi lokasi..." : "Gunakan Lokasi Saat Ini"}
+              </span>
+            </button>
+            {gpsError && <p className="fsz-11p5 font-medium" style={{ color: "#EF4444" }}>{gpsError}</p>}
+
+            <p className="fsz-12 font-bold tc-slate mb-1 mt-2">Atau tandai di peta</p>
+            <MiniMap lat={pin?.lat} lng={pin?.lng} onPick={handleMapPick} height={170} />
+            {pin && (
+              <div className="mt-2.5 rounded-2xl p-3 flex items-center gap-2.5" style={{ background: C.gray }}>
+                <MapPin size={15} color={C.tosca} className="shrink-0" />
+                <span className="fsz-12 font-medium flex-1" style={{ color: C.text }}>
+                  {pinLoading ? "Mengambil nama alamat..." : pinAddress}
+                </span>
+                <button
+                  onClick={() => !pinLoading && onSelect(pinAddress, pin.lat, pin.lng)}
+                  disabled={pinLoading}
+                  className="px-3 py-1.5 rounded-full fsz-11 font-bold shrink-0 transition active:scale-95"
+                  style={{ background: C.tosca, color: "#fff" }}
+                >
+                  Pakai
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -1353,10 +1369,6 @@ export default function TerimaKasiApp() {
             Barang berpindah Manfaat bertambah
           </p>
         </div>
-        <div className="pb-10 flex flex-col items-center gap-3">
-          <div className="w-9 h-9 rounded-full border-2 animate-spin" style={{ borderColor: "rgba(0,0,0,0.15)", borderTopColor: C.tosca }} />
-          <span className="fsz-11 font-semibold tracking-wide" style={{ color: "#94A3B8" }}>Ketuk untuk lanjut</span>
-        </div>
       </div>
     );
   }
@@ -2046,7 +2058,7 @@ export default function TerimaKasiApp() {
             <span className="fsz-13 font-semibold" style={{ color: "#64748B" }}>{item.lokasi}{item.radius ? ` · ±${item.radius}km dari kamu` : ""}</span>
           </div>
 
-          <NodeDivider className="my-5" />
+          <NodeDivider className="my-5" km={item.radius} />
 
           <h2 className="font-bold fsz-13p5 mb-2" style={{ color: C.navy }}>Deskripsi</h2>
           <p className="fsz-13p5 leading-relaxed font-medium" style={{ color: "#475569" }}>{item.deskripsi}</p>
@@ -2516,7 +2528,7 @@ export default function TerimaKasiApp() {
                       <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: n.read ? C.gray : "rgba(20,207,185,0.15)" }}>
                         <Icon size={17} color={n.read ? "#94A3B8" : C.tosca} />
                       </div>
-                      {n.count > 1 && (
+                      {n.count > 1 && !n.read && (
                         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center fsz-10p5 font-bold text-white" style={{ background: "#EF4444" }}>
                           {n.count}
                         </span>
