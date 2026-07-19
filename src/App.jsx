@@ -314,32 +314,33 @@ function formatDateLabel(isoString) {
   return d.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
 }
 
-// Ringkas alamat lengkap dari Nominatim jadi "Kecamatan, Kota", diambil
-// PERSIS dari field terstruktur hasil geocoding di koordinat yang sama
-// (bukan tebakan) — city_district = Kecamatan, city/county = Kota/Kabupaten,
-// sesuai cara OpenStreetMap menandai wilayah administratif di Indonesia.
+// Ringkas alamat lengkap dari Nominatim jadi "Kecamatan, Kota". Field
+// terstruktur (city_district/suburb/village) sering salah tag di data OSM
+// Indonesia, jadi dipatok dari posisi provinsi (addr.state, field paling
+// reliable) di dalam display_name, lalu ambil 2 segmen persis sebelum itu —
+// urutan display_name Nominatim selalu dari spesifik ke umum, jadi 2 segmen
+// sebelum provinsi selalu "Kecamatan/Kelurahan, Kota/Kabupaten".
 function buildShortAddress(nominatimAddress, fallback) {
   const addr = nominatimAddress || {};
+  const parts = (fallback || "").split(",").map((p) => p.trim()).filter(Boolean);
 
-  // Kecamatan: field paling akurat adalah city_district. Kalau gak ada
-  // (jarang), baru turun ke tingkat kelurahan/desa (suburb/village).
+  const province = addr.state;
+  if (province) {
+    const idx = parts.findIndex((p) => p === province);
+    if (idx >= 2) return `${parts[idx - 2]}, ${parts[idx - 1]}`;
+    if (idx === 1) return parts[0];
+  }
+
+  // Provinsi gak ketemu di display_name (jarang) — turun ke field
+  // terstruktur sebagai fallback.
   const kecamatan = addr.city_district || addr.suburb || addr.village;
-
-  // Kota/Kabupaten: city (Kota) lebih diutamakan, baru county (Kabupaten).
   const kota = addr.city || addr.county || addr.regency;
-
   if (kecamatan && kota && kecamatan !== kota) return `${kecamatan}, ${kota}`;
   if (kecamatan) return kecamatan;
   if (kota) return kota;
 
-  // Kalau data terstruktur gak lengkap, ambil 2 segmen pertama dari
-  // alamat lengkap apa adanya — tetap dari data asli, bukan ngarang.
-  if (fallback) {
-    const parts = fallback.split(",").map((p) => p.trim()).filter(Boolean);
-    if (parts.length >= 2) return `${parts[0]}, ${parts[1]}`;
-    return parts[0] || fallback;
-  }
-  return "";
+  if (parts.length >= 2) return `${parts[0]}, ${parts[1]}`;
+  return parts[0] || fallback || "";
 }
 
 function useStablePage(renderFn) {
@@ -1467,64 +1468,64 @@ export default function TerimaKasiApp() {
       <div className="h-full w-full flex flex-col relative" style={{ background: C.bg }}>
         <StatusBar />
 
-        <div className="px-5 pt-2 pb-4 shrink-0">
-          <div className="flex items-center justify-between">
-            <h1 className="font-display font-bold fsz-18" style={{ color: C.navy }}>
-              <span className="fsz-13 tc-slate font-medium">Halo, </span>
-              {userProfile.nama.split(" ")[0]}
-            </h1>
-            <button onClick={() => navigate("notifications")} className="w-10 h-10 rounded-full flex items-center justify-center relative" style={{ background: C.gray }}>
-              <Bell size={18} color={C.navy} />
-              {notifications.some((n) => !n.read) && (
-                <span className="absolute top-2 right-2.5 w-1.5 h-1.5 rounded-full" style={{ background: C.tosca }} />
+        <div className="flex-1 overflow-y-auto pb-28">
+          <div className="px-5 pt-2 pb-4">
+            <div className="flex items-center justify-between">
+              <h1 className="font-display font-bold fsz-18" style={{ color: C.navy }}>
+                <span className="fsz-13 tc-slate font-medium">Halo, </span>
+                {userProfile.nama.split(" ")[0]}
+              </h1>
+              <button onClick={() => navigate("notifications")} className="w-10 h-10 rounded-full flex items-center justify-center relative" style={{ background: C.gray }}>
+                <Bell size={18} color={C.navy} />
+                {notifications.some((n) => !n.read) && (
+                  <span className="absolute top-2 right-2.5 w-1.5 h-1.5 rounded-full" style={{ background: C.tosca }} />
+                )}
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <button onClick={() => setShowLokasiPicker(true)} className="w-6 h-6 -ml-1 rounded-full flex items-center justify-center transition active:scale-90">
+                <MapPin size={15} color={C.tosca} />
+              </button>
+              <span className="fsz-12 font-semibold" style={{ color: C.text }}>{userLokasi}</span>
+            </div>
+          </div>
+
+          <div className="px-5 pb-3">
+            <HomeBannerCarousel />
+          </div>
+
+          <div className="px-5 pb-3">
+            <button
+              onClick={() => navigate("upload")}
+              className="w-full rounded-3xl px-4 py-3.5 flex items-center gap-3 text-left transition active:scale-95"
+              style={{ background: C.tosca }}
+            >
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}>
+                <HeartHandshake size={22} color="#fff" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-display font-bold fsz-14" style={{ color: "#fff" }}>Ada yang mau dikasi hari ini?</p>
+                <p className="fsz-11p5 font-medium" style={{ color: "rgba(255,255,255,0.85)" }}>Biarkan fungsi barangmu hidup lebih lama</p>
+              </div>
+              <Plus size={18} color="#fff" strokeWidth={2.5} />
+            </button>
+          </div>
+
+          <div className="px-5 pb-3 flex items-center gap-2.5 sticky top-0 z-10" style={{ background: C.bg }}>
+            <div className="flex-1 flex items-center gap-2 rounded-2xl px-4 py-3" style={{ background: C.gray }}>
+              <Search size={16} color="#94A3B8" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari barang gratis di sekitarmu" className="bg-transparent outline-none fsz-13 flex-1 font-medium" style={{ color: C.text }} />
+            </div>
+            <button onClick={() => setShowFilter(true)} className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 relative transition active:scale-95" style={{ background: C.navy }}>
+              <SlidersHorizontal size={16} color="#fff" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center fsz-10p5 font-bold" style={{ background: C.tosca, color: "#fff" }}>
+                  {activeFilterCount}
+                </span>
               )}
             </button>
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <button onClick={() => setShowLokasiPicker(true)} className="w-6 h-6 -ml-1 rounded-full flex items-center justify-center transition active:scale-90">
-              <MapPin size={15} color={C.tosca} />
-            </button>
-            <span className="fsz-12 font-semibold" style={{ color: C.text }}>{userLokasi}</span>
-          </div>
-        </div>
 
-        <div className="px-5 pb-3 shrink-0">
-          <HomeBannerCarousel />
-        </div>
-
-        <div className="px-5 pb-3 shrink-0">
-          <button
-            onClick={() => navigate("upload")}
-            className="w-full rounded-3xl px-4 py-3.5 flex items-center gap-3 text-left transition active:scale-95"
-            style={{ background: C.tosca }}
-          >
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.18)" }}>
-              <HeartHandshake size={22} color="#fff" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-display font-bold fsz-14" style={{ color: "#fff" }}>Ada yang mau dikasi hari ini?</p>
-              <p className="fsz-11p5 font-medium" style={{ color: "rgba(255,255,255,0.85)" }}>Biarkan fungsi barangmu hidup lebih lama</p>
-            </div>
-            <Plus size={18} color="#fff" strokeWidth={2.5} />
-          </button>
-        </div>
-
-        <div className="px-5 pb-3 shrink-0 flex items-center gap-2.5">
-          <div className="flex-1 flex items-center gap-2 rounded-2xl px-4 py-3" style={{ background: C.gray }}>
-            <Search size={16} color="#94A3B8" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari barang gratis di sekitarmu" className="bg-transparent outline-none fsz-13 flex-1 font-medium" style={{ color: C.text }} />
-          </div>
-          <button onClick={() => setShowFilter(true)} className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 relative transition active:scale-95" style={{ background: C.navy }}>
-            <SlidersHorizontal size={16} color="#fff" />
-            {activeFilterCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center fsz-10p5 font-bold" style={{ background: C.tosca, color: "#fff" }}>
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto pb-28">
           <div className="px-3.5">
             <div className="flex items-center gap-2 mb-3 mt-1 px-1.5">
               <Sparkles size={14} color={C.tosca} />
